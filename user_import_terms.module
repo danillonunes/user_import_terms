@@ -67,3 +67,75 @@ function user_import_terms_user_import_form_fieldset($import, $collapsed) {
 
   return $form;
 }
+
+/**
+ * Implementation of hook_user_import_after_save().
+ */
+function user_import_terms_user_import_after_save($settings, $account, $password, $fields, $updated, $update_setting_per_module) {
+  if (isset($settings['user_terms_vids'])) {
+    $edited_vids = array_keys($edit['user_terms_vids']);
+    $vids = variable_get('user_terms_vocabs', array());
+
+    // Merge all terms into one array
+    $user_terms = array();
+    foreach ($vids as $vid) {
+      // Tags need special handling.
+      if ($settings['user_terms_vids'][$vid] == 'tags') {
+        // Free tags come in a string without tids
+        $input_tags = drupal_explode_tags($settings['user_terms_' . $vid]);
+
+        foreach ($input_tags as $input_tag) {
+          // See if the term exists in the chosen vocabulary
+          // and return the tid; otherwise, add a new record.
+          $possibilities = taxonomy_get_term_by_name($input_tag);
+          $input_tag_tid = NULL; // tid match, if any.
+          foreach ($possibilities as $possibility) {
+            if ($possibility->vid == $vid) {
+              $input_tag_tid = $possibility->tid;
+            }
+          }
+
+          if (!$input_tag_tid) {
+            $t = array('vid' => $vid, 'name' => $input_tag);
+            $status = taxonomy_save_term($t);
+            $input_tag_tid = $t['tid'];
+          }
+
+          $user_terms[] = $input_tag_tid;
+        }
+      }
+      else {
+        // Depending on the type of field widget, this may be an array or a string.
+        if (is_array($settings['user_terms_' . $vid])) {
+          $user_terms = array_merge($user_terms, (array)$settings['user_terms_' . $vid]);
+        }
+        else {
+          $user_terms[] = $settings['user_terms_' . $vid];
+        }
+      }
+      $settings['user_terms_' . $vid] = NULL;
+    }
+
+    // Add into the array the terms already on the account from the vocabularies
+    // we did NOT edit: otherwise they will be clobbered by the saving.
+    $unedited_vids = array_diff($vids, $edited_vids);
+    foreach ($account->user_terms as $tid => $term) {
+      if (isset($unedited_vids[$term['vid']])) {
+        $user_terms[] = $tid;
+      }
+    }
+
+    if ($updated) {
+      $query = "DELETE FROM {term_user} WHERE uid = %d";
+      db_query($query, $account->uid);
+    }
+
+    // Persist the new data.
+    $query = "INSERT IGNORE INTO {term_user} (uid, tid) VALUES (%d, %d)";
+
+    // Save all terms (except zeros).
+    foreach (array_filter($user_terms) as $tid) {
+      db_query($query, $account->uid, $tid);
+    }
+  }
+}
