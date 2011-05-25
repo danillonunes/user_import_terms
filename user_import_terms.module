@@ -1,0 +1,69 @@
+<?php
+
+/**
+ * Implementation of hook_user_import_form_fieldsets().
+ */
+function user_import_terms_user_import_form_fieldset($import, $collapsed) {
+  $vocabularies = variable_get('user_terms_vocabs', array());
+
+  $form['user_terms'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('User terms'),
+    '#collapsible' => TRUE,
+    '#collapsed' => $collapsed,
+  );
+
+  if (empty($vocabularies)) {
+    $form['user_terms']['#description'] = t('No user terms have been defined.');
+  }
+  else {
+    // Set a hidden value on the form listing the vocabularies we are editing
+    // here, so that we can check in user_terms_save_profile() and avoid
+    // clobbering terms from other vocabularies.
+    // This is an array whose keys are the vids, and values are either also
+    // the $vid, or the string 'tags' if the particular vocabulary is tags, ie:
+    //    $vid => (either $vid or 'tags')
+    $form['user_terms_vids'] = array(
+      '#type' => 'value',
+      '#value' => array(), // We will fill this in as we handle each vocab.
+    );
+
+    foreach ($vocabularies as $vid) {
+      $vocabulary = taxonomy_vocabulary_load($vid);
+
+      // Tags need special handling.
+      if ($vocabulary->tags) {
+
+        if ($vocabulary->help) {
+          $help = filter_xss_admin($vocabulary->help);
+        }
+        else {
+          $help = t('A comma-separated list of terms describing this content. Example: funny, bungee jumping, "Company, Inc.".');
+        }
+ 
+        $form['user_terms']['user_terms_' . $vocabulary->vid] = array('#type' => 'textfield',
+          '#title' => check_plain($vocabulary->name),
+          '#description' => $help,
+          '#autocomplete_path' => 'taxonomy/autocomplete/' . $vocabulary->vid,
+          '#weight' => $vocabulary->weight,
+          '#maxlength' => 1024,
+        );
+        
+        // Add this vid to the hidden value, indicating it uses tags.
+        $form['user_terms_vids']['#value'][$vid] = 'tags';
+      }
+      else {
+        // Use taxonomy module's form element builder function.
+        $form['user_terms']['user_terms_' . $vid]  = taxonomy_form($vid, array_keys($default_terms), NULL, 'taxonomy');
+        $form['user_terms']['user_terms_' . $vid]['#weight'] = $vocabulary->weight;
+        $form['user_terms']['user_terms_' . $vid]['#required'] = $vocabulary->required;
+        
+        // Add this vid to the hidden value.
+        $form['user_terms_vids']['#value'][$vid] = $vid;
+      }
+
+    }
+  }
+
+  return $form;
+}
