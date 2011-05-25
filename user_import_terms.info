@@ -1,0 +1,4 @@
+name = User Import Terms
+description = Adds User Terms support to User Import
+dependencies[] = taxonomy
+dependencies[] = user_import
